@@ -1,0 +1,21 @@
+# Root .gitignore
+
+# Dependencies
+**/node_modules
+**/.pnpm-store
+
+# Environment Variables (IMPORTANT!)
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Build outputs
+**/dist
+**/build
+**/.next
+**/.expo
+**/.expo-shared
+
+# Logs & OS System Files
+*.log
+.DS_Store
