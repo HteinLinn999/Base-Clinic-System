@@ -1,0 +1,659 @@
+// ============================================
+// GENERATOR & DATASOURCE
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  //url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum Role {
+  ADMIN
+  STAFF
+  DOCTOR
+  PATIENT
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+enum BloodGroup {
+  A_POSITIVE
+  A_NEGATIVE
+  B_POSITIVE
+  B_NEGATIVE
+  AB_POSITIVE
+  AB_NEGATIVE
+  O_POSITIVE
+  O_NEGATIVE
+  UNKNOWN
+}
+
+enum DiagnosisCategory {
+  GENERAL
+  CARDIOLOGY
+  NEUROLOGY
+  PEDIATRICS
+  DERMATOLOGY
+  ORTHOPEDICS
+  OPHTHALMOLOGY
+  DENTAL
+  PSYCHIATRY
+  EMERGENCY
+  OTHER
+}
+
+enum NotificationType {
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum AppointmentType {
+  IN_CLINIC
+  ONLINE_VIDEO
+}
+
+// ============================================
+// USER MODEL
+// ============================================
+
+model User {
+  id        String    @id @default(uuid())
+  phone     String    @unique @db.VarChar(20)
+  email     String?   @unique
+  password  String // Hashed password
+  role      Role      @default(PATIENT)
+  avatarUrl String?
+  isActive  Boolean   @default(true)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relations
+  patientProfile    PatientProfile?
+  doctorProfile     DoctorProfile?
+  staffProfile      StaffProfile?
+  feedPosts         FeedPost[]
+  notifications     Notification[]
+  sessions          Session[]
+  auditLogs         AuditLog[]
+  medicineStockLogs MedicineStockLog[]
+
+  @@index([role])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+// ============================================
+// 1. MASTER LOCATION MODELS (အသစ်ထပ်တိုး)
+// ============================================
+
+model StateRegion {
+  id              String           @id @default(uuid())
+  nameMm          String   @unique         // e.g. "ရန်ကုန်တိုင်းဒေသကြီး"
+  nameEn          String?          // e.g. "Yangon Region"
+  type            String           // "STATE" | "REGION" | "UNION_TERRITORY"
+  
+  townships       Township[]
+  patientProfiles PatientProfile[]
+
+  @@map("state_regions")
+}
+
+model Township {
+  id              String           @id @default(uuid())
+  stateRegionId   String
+  stateRegion     StateRegion      @relation(fields: [stateRegionId], references: [id], onDelete: Cascade)
+  nameMm          String           // e.g. "လှိုင်"
+  nameEn          String?          // e.g. "Hlaing"
+  district        String?          // e.g. "မရမ်းကုန်းခရိုင်"
+
+  patientProfiles PatientProfile[]
+
+  @@index([stateRegionId])
+  @@map("townships")
+}
+
+// ============================================
+// 2. PATIENT PROFILE MODEL (ပြင်ဆင်ပြီး)
+// ============================================
+
+model PatientProfile {
+  id                String          @id @default(uuid())
+  userId            String          @unique
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName          String
+  dob               DateTime?
+  gender            Gender?
+  bloodGroup        BloodGroup?     @default(UNKNOWN)
+  allergies         String?         // မတည့်သည့်ဆေးများ
+  medicalConditions String?         // ရောဂါအခံများ
+  medicalHistory    Json?           // ထပ်ဆောင်းရောဂါအခံများ (JSON format)
+  
+  // Location & Address Fields (အသစ်ပြင်ဆင်ထားသော လိပ်စာအပိုင်း)
+  isForeign         Boolean         @default(false) // ပြည်ပလူနာ ဟုတ်/မဟုတ်
+  country           String?         @default("Myanmar") // နိုင်ငံအမည်
+  stateRegionId     String?
+  stateRegion       StateRegion?    @relation(fields: [stateRegionId], references: [id], onDelete: SetNull)
+  townshipId        String?
+  township          Township?       @relation(fields: [townshipId], references: [id], onDelete: SetNull)
+  address           String?         // အိမ်နံပါတ်၊ လမ်း စသည့် အသေးစိတ်လိပ်စာ
+
+  emergencyContact  String?         // အရေးပေါ်ဆက်သွယ်ရန် (အဟောင်း)
+  deletedAt         DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  // Relations
+  bookings          Booking[]
+  medicalRecords    MedicalRecord[]
+  emergencyContacts EmergencyContact[]
+  patientFeedbacks  PatientFeedback[]
+  invoices          Invoice[]
+
+  @@index([deletedAt])
+  @@index([stateRegionId])
+  @@index([townshipId])
+  @@map("patient_profiles")
+}
+
+// ============================================
+// DOCTOR PROFILE
+// ============================================
+
+model DoctorProfile {
+  id                   String    @id @default(uuid())
+  userId               String    @unique
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName             String
+  title                String // e.g. "Dr.", "Prof."
+  specialization       String // e.g. "General Physician", "Pediatrician"
+  licenseNumber        String?
+  bio                  String?
+  consultationFee      Decimal   @default(0.0)
+  isAvailableForOnline Boolean   @default(true)
+  deletedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relations
+  bookings         Booking[]
+  medicalRecords   MedicalRecord[]
+  doctorSchedules  DoctorSchedule[]
+  breakTimes       BreakTime[]
+  patientFeedbacks PatientFeedback[]
+  invoices         Invoice[]
+
+  @@index([deletedAt])
+  @@map("doctor_profiles")
+}
+
+// ============================================
+// STAFF PROFILE
+// ============================================
+
+model StaffProfile {
+  id        String    @id @default(uuid())
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName  String
+  position  String // e.g. "Receptionist", "Nurse"
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([deletedAt])
+  @@map("staff_profiles")
+}
+
+// ============================================
+// EMERGENCY CONTACT
+// ============================================
+
+model EmergencyContact {
+  id               String         @id @default(uuid())
+  patientId        String
+  patient          PatientProfile @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  fullName         String
+  relationship     String // e.g. "ဖခင်", "မိခင်", "အိမ်ထောင်ဖက်"
+  phone            String         @db.VarChar(20)
+  alternativePhone String?        @db.VarChar(20)
+  email            String?
+  isPrimary        Boolean        @default(false)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([patientId])
+  @@map("emergency_contacts")
+}
+
+// ============================================
+// BOOKING (APPOINTMENT)
+// ============================================
+
+model Booking {
+  id                 String        @id @default(uuid())
+  tokenNumber        Int // တန်းစီအမှတ် (နေ့ရက်အလိုက်)
+  bookingDate        DateTime      @db.Date // စစ်ဆေးမည့်နေ့
+  startTime          DateTime      @db.Time // စတင်ချိန်
+  endTime            DateTime      @db.Time // ပြီးဆုံးချိန်
+  status             BookingStatus @default(PENDING)
+  type   AppointmentType   @default(IN_CLINIC)
+  cancellationReason String?
+  cancelledAt        DateTime?
+  patientId          String
+  patient            PatientProfile @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  doctorId           String
+  doctor             DoctorProfile  @relation(fields: [doctorId], references: [id], onDelete: Restrict)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  // Relations
+  medicalRecord   MedicalRecord?
+  patientFeedback PatientFeedback?
+  invoices        Invoice[]
+
+  // Constraints
+  @@unique([doctorId, bookingDate, tokenNumber])
+  // Indexes
+  @@index([doctorId, bookingDate])
+  @@index([patientId, bookingDate])
+  @@index([status])
+  @@index([startTime])
+  @@index([cancelledAt])
+  @@map("bookings")
+}
+
+// ============================================
+// MEDICAL RECORD
+// ============================================
+
+model MedicalRecord {
+  id                String            @id @default(uuid())
+  bookingId         String?           @unique
+  booking           Booking?          @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  patientId         String
+  patient           PatientProfile    @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  doctorId          String
+  doctor            DoctorProfile     @relation(fields: [doctorId], references: [id], onDelete: Restrict)
+  diagnosisCategory DiagnosisCategory @default(OTHER)
+  diagnosis         String // ရောဂါအမည်/အခြေအနေ
+  prescription      String // ဆေးစာ (အဟောင်း)
+  notes             String?
+  followUpDate      DateTime? // နောက်တစ်ကြိမ် ပြန်လာရမည့်နေ့
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  // Relations
+  attachments   Attachment[]
+  prescriptions Prescription[]
+
+  // Indexes
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([createdAt])
+  @@index([followUpDate])
+  @@map("medical_records")
+}
+
+// ============================================
+// PRESCRIPTION (ဆေးစာ - သီးခြားခွဲထား)
+// ============================================
+
+model Prescription {
+  id              String        @id @default(uuid())
+  medicalRecordId String
+  medicalRecord   MedicalRecord @relation(fields: [medicalRecordId], references: [id], onDelete: Cascade)
+  medicineName    String
+  dosage          String // e.g. "500mg", "1 tablet"
+  frequency       String // e.g. "တစ်နေ့ ၃ ကြိမ်"
+  duration        String // e.g. "၇ ရက်"
+  instructions    String? // ထပ်ဆောင်းညွှန်ကြားချက်
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([medicalRecordId])
+  @@index([isActive])
+  @@map("prescriptions")
+}
+
+// ============================================
+// ATTACHMENT (ဖိုင်တွဲများ)
+// ============================================
+
+model Attachment {
+  id              String        @id @default(uuid())
+  medicalRecordId String
+  medicalRecord   MedicalRecord @relation(fields: [medicalRecordId], references: [id], onDelete: Cascade)
+  fileName        String
+  fileUrl         String
+  fileType        String? // e.g. "image/png", "application/pdf"
+  fileSize        Int? // Bytes
+  isPublic        Boolean       @default(false)
+  uploadedAt      DateTime      @default(now())
+
+  @@index([medicalRecordId])
+  @@map("attachments")
+}
+
+// ============================================
+// NOTIFICATION
+// ============================================
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String
+  isRead    Boolean          @default(false)
+  isSent    Boolean          @default(false)
+  sentAt    DateTime?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, isSent])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ============================================
+// SESSION
+// ============================================
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  isRevoked Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([token])
+  @@index([expiresAt])
+  @@index([userId, isRevoked])
+  @@map("sessions")
+}
+
+// ============================================
+// AUDIT LOG
+// ============================================
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action     String // "CREATE", "UPDATE", "DELETE", "LOGIN", "LOGOUT"
+  entityType String // "User", "Booking", "MedicalRecord", "Prescription"
+  entityId   String
+  changes    Json? // ပြောင်းလဲသွားသော data များ
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ============================================
+// FEED POST (ဆေးခန်းသတင်းများ)
+// ============================================
+
+model FeedPost {
+  id           String    @id @default(uuid())
+  authorId     String
+  author       User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  title        String
+  content      String?
+  mediaType    MediaType
+  mediaUrl     String
+  thumbnailUrl String?
+  isPublished  Boolean   @default(true)
+  publishedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([createdAt])
+  @@index([isPublished])
+  @@index([publishedAt])
+  @@map("feed_posts")
+}
+
+// ============================================
+// CLINIC SETTINGS (ဆေးခန်းသတ်မှတ်ချက်များ)
+// ============================================
+
+model ClinicSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  isEditable  Boolean  @default(true)
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("clinic_settings")
+}
+
+// ============================================
+// HOLIDAY / CLOSED DATE (ပိတ်ရက်များ)
+// ============================================
+
+model Holiday {
+  id          String   @id @default(uuid())
+  date        DateTime @unique @db.Date
+  name        String
+  description String?
+  isRecurring Boolean  @default(false) // နှစ်စဉ်ကျရောက်သောနေ့လား
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([date])
+  @@map("holidays")
+}
+
+// ============================================
+// DOCTOR SCHEDULE (ဆရာဝန်အလုပ်ချိန်)
+// ============================================
+
+model DoctorSchedule {
+  id        String        @id @default(uuid())
+  doctorId  String
+  doctor    DoctorProfile @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  dayOfWeek Int // 0=Sunday, 1=Monday, ... 6=Saturday
+  startTime DateTime      @db.Time
+  endTime   DateTime      @db.Time
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@unique([doctorId, dayOfWeek])
+  @@index([doctorId, isActive])
+  @@map("doctor_schedules")
+}
+
+// ============================================
+// BREAK TIME (ဆရာဝန်နားချိန်)
+// ============================================
+
+model BreakTime {
+  id        String        @id @default(uuid())
+  doctorId  String
+  doctor    DoctorProfile @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  date      DateTime      @db.Date
+  startTime DateTime      @db.Time
+  endTime   DateTime      @db.Time
+  reason    String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([doctorId, date])
+  @@map("break_times")
+}
+
+// ============================================
+// PATIENT FEEDBACK (လူနာ အကဲဖြတ်ချက်)
+// ============================================
+
+model PatientFeedback {
+  id          String         @id @default(uuid())
+  bookingId   String         @unique
+  booking     Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  patientId   String
+  patient     PatientProfile @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId    String
+  doctor      DoctorProfile  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  rating      Int // 1-5
+  comment     String?
+  isAnonymous Boolean        @default(false)
+  createdAt   DateTime       @default(now())
+
+  @@index([doctorId])
+  @@index([rating])
+  @@map("patient_feedbacks")
+}
+
+// ============================================
+// MEDICINE INVENTORY (ဆေးဝါးစာရင်း)
+// ============================================
+
+model Medicine {
+  id            String    @id @default(uuid())
+  name          String
+  genericName   String?
+  category      String
+  unit          String // e.g. "tablet", "ml", "mg"
+  currentStock  Int       @default(0)
+  minimumStock  Int       @default(5)
+  purchasePrice Decimal?
+  sellingPrice  Decimal?
+  expiryDate    DateTime?
+  batchNumber   String?
+  manufacturer  String?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  stockLogs   MedicineStockLog[]
+  invoiceItems InvoiceItem[]
+
+  @@index([name])
+  @@index([category])
+  @@index([isActive])
+  @@map("medicines")
+}
+
+// ============================================
+// MEDICINE STOCK LOG (ဆေးဝါးအဝင်အထွက်မှတ်တမ်း)
+// ============================================
+
+model MedicineStockLog {
+  id         String   @id @default(uuid())
+  medicineId String
+  medicine   Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+  quantity   Int // အပြုသဘော = ဝင်တာ၊ အနှုတ်သဘော = ထွက်တာ
+  type       String // "PURCHASE", "SALE", "RETURN", "ADJUSTMENT"
+  note       String?
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt  DateTime @default(now())
+
+  @@index([medicineId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("medicine_stock_logs")
+}
+
+// ============================================
+// INVOICE (ကုန်ကျစရိတ်)
+// ============================================
+
+model Invoice {
+  id            String         @id @default(uuid())
+  invoiceNumber String         @unique
+  patientId     String
+  patient       PatientProfile @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  doctorId      String
+  doctor        DoctorProfile  @relation(fields: [doctorId], references: [id], onDelete: Restrict)
+  bookingId     String?
+  booking       Booking?       @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  totalAmount   Decimal
+  discount      Decimal        @default(0.0)
+  tax           Decimal        @default(0.0)
+  finalAmount   Decimal
+  status        String         @default("PENDING") // PENDING, PAID, CANCELLED
+  paymentMethod String? // CASH, CARD, ONLINE
+  paidAt        DateTime?
+  dueDate       DateTime?
+  notes         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // Relations
+  items InvoiceItem[]
+
+  @@index([patientId])
+  @@index([invoiceNumber])
+  @@index([status])
+  @@index([createdAt])
+  @@map("invoices")
+}
+
+// ============================================
+// INVOICE ITEM (အသေးစိတ်ကုန်ကျစရိတ်)
+// ============================================
+
+model InvoiceItem {
+  id          String    @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Int       @default(1)
+  unitPrice   Decimal
+  totalPrice  Decimal
+  medicineId  String?
+  medicine    Medicine? @relation(fields: [medicineId], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
