@@ -1,7 +1,8 @@
 // clinic-backend/src/main.ts
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
-import { ValidationPipe } from '@nestjs/common';
+// import { ValidationPipe } from '@nestjs/common';
+import { ZodValidationPipe } from 'nestjs-zod';
 import helmet from 'helmet';
 
 async function bootstrap() {
@@ -17,14 +18,7 @@ async function bootstrap() {
   });
 
   // 3. Global Input Validation & DTO Sanitization
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true, // DTO ထဲမပါသော Extra Fields များကို ဖျက်ထုတ်မည်
-      forbidNonWhitelisted: true, // မသတ်မှတ်ထားသော Field ပါလာပါက Request ကို ငြင်းပယ်မည်
-      transform: true,
-    }),
-  );
-
+  app.useGlobalPipes(new ZodValidationPipe());
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

@@ -1,123 +1,76 @@
-import { Request, Response } from 'express';
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
-import { prisma } from '../../config/prisma.js';
-import Role from '@prisma/client';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import { AuthService } from '@/modules/auth/auth.service.js';
+import {
+  RegisterPatientDto,
+  RegisterStaffDto,
+  LoginDto,
+  RefreshTokenDto,
+  ChangePasswordDto,
+  Role,
+} from '@/modules/auth/dto/index.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
-interface RegisterBody {
-  phone: string;
-  email?: string;
-  password: string;
-  //role?: 'PATIENT' | 'DOCTOR' | 'STAFF';
-  role?: Role.Role;
-  fullName?: string;
-}
+// Index ဖိုင်တိုက်ရိုက် ခေါ်မရပါက လမ်းကြောင်းအပြည့်အစုံ ရေးပေးနိုင်ပါသည်
+// (သို့မဟုတ် src/common/index.ts ရှိပါက '@/common/index.js' အတိုင်း သုံးနိုင်ပါသည်)
+import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard.js';
+import { RolesGuard } from '@/common/guards/roles.guard.js';
+import { Roles } from '@/common/decorators/roles.decorator.js';
+import { GetUser } from '@/common/decorators/get-user.decorator.js';
 
-interface LoginBody {
-  phone: string;
-  password: string;
-}
-
+@Controller('auth')
 export class AuthController {
-  // 1. Register User (Patient / Staff / Doctor)
-  static async register(req: Request, res: Response) {
-    try {
-      const { phone, email, password, role, fullName } =
-        req.body as RegisterBody;
+  constructor(private readonly authService: AuthService) {}
 
-      const existingUser = await prisma.user.findUnique({ where: { phone } });
-      if (existingUser) {
-        return res
-          .status(400)
-          .json({ message: 'Phone number already registered' });
-      }
-
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      const result = await prisma.$transaction(async (tx) => {
-        const user = await tx.user.create({
-          data: {
-            phone,
-            email,
-            password: hashedPassword,
-            role: role || 'PATIENT',
-          },
-        });
-
-        if (user.role === 'PATIENT') {
-          await tx.patientProfile.create({
-            data: {
-              userId: user.id,
-              fullName: fullName || 'New Patient',
-            },
-          });
-        }
-
-        return user;
-      });
-
-      return res
-        .status(201)
-        .json({ message: 'User registered successfully', userId: result.id });
-    } catch (error) {
-      return res.status(500).json({ error: (error as Error).message });
-    }
+  // 1. Patient များ အကောင့်ဖွင့်ရန်
+  @Post('register/patient')
+  async registerPatient(@Body() dto: RegisterPatientDto) {
+    return await this.authService.registerPatient(dto);
   }
 
-  // 2. Login User
-  static async login(req: Request, res: Response) {
-    try {
-      const { phone, password } = req.body as LoginBody;
+  // 2. Staff / Doctor များ အကောင့်ဖွင့်ရန်
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Post('register/staff')
+  async registerStaff(@Body() dto: RegisterStaffDto) {
+    return await this.authService.registerStaff(dto);
+  }
 
-      const user = await prisma.user.findUnique({
-        where: { phone },
-        include: {
-          patientProfile: true,
-          doctorProfile: true,
-          staffProfile: true,
-        },
-      });
+  // 3. Login ဝင်ရန်
+  @HttpCode(HttpStatus.OK)
+  @Post('login')
+  async login(@Body() dto: LoginDto) {
+    return await this.authService.login(dto);
+  }
 
-      if (!user || !user.isActive) {
-        return res
-          .status(401)
-          .json({ message: 'Invalid credentials or inactive account' });
-      }
+  // 4. Access Token Refresh လုပ်ရန်
+  @HttpCode(HttpStatus.OK)
+  @Post('refresh')
+  async refreshToken(@Body() dto: RefreshTokenDto) {
+    return await this.authService.refreshToken(dto.refreshToken);
+  }
 
-      const isPasswordValid = await bcrypt.compare(password, user.password);
-      if (!isPasswordValid) {
-        return res.status(401).json({ message: 'Invalid credentials' });
-      }
+  // 5. လက်ရှိ User အချက်အလက် ယူရန်
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  getProfile(@GetUser() user: Record<string, unknown>) {
+    return user;
+  }
 
-      const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, {
-        expiresIn: '7d',
-      });
-
-      // Create Session Log
-      await prisma.session.create({
-        data: {
-          userId: user.id,
-          token,
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-          ipAddress: req.ip,
-          userAgent: req.get('user-agent'),
-        },
-      });
-
-      return res.json({
-        token,
-        user: {
-          id: user.id,
-          phone: user.phone,
-          email: user.email,
-          role: user.role,
-          patientProfile: user.patientProfile,
-          doctorProfile: user.doctorProfile,
-        },
-      });
-    } catch (error) {
-      return res.status(500).json({ error: (error as Error).message });
-    }
+  // 6. စကားဝှက် ပြောင်းရန်
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @Post('change-password')
+  async changePassword(
+    @GetUser('id') userId: string,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return await this.authService.changePassword(userId, dto);
   }
 }

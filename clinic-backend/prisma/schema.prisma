@@ -4,11 +4,14 @@
 
 generator client {
   provider = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
   provider = "postgresql"
-  //url      = env("DATABASE_URL")
+
+  //URL အတွက် src/config/prisma.ts နဲ့ သီးသန့် ခွဲထုတ်ရေးထားတယ်နော် 
+  //url      = env("DATABASE_URL")  
 }
 
 // ============================================
