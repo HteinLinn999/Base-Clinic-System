@@ -15,7 +15,7 @@ datasource db {
 // ENUMS
 // ============================================
 
-enum Role {
+export enum Role {
   ADMIN
   STAFF
   DOCTOR
